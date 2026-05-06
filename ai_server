@@ -1,0 +1,46 @@
+from flask import Flask, Response, jsonify
+from flask_cors import CORS
+import threading
+import time
+
+app = Flask(__name__)
+CORS(app)
+
+latest_detection = {
+    "object": "None",
+    "confidence": 0.0,
+    "timestamp": ""
+}
+
+latest_frame_bytes = None
+frame_lock = threading.Lock()
+
+def set_detection(label, confidence):
+    latest_detection["object"] = label
+    latest_detection["confidence"] = round(confidence, 3)
+    latest_detection["timestamp"] = time.strftime("%H:%M:%S")
+
+def set_frame(jpg_bytes):
+    global latest_frame_bytes
+    with frame_lock:
+        latest_frame_bytes = jpg_bytes
+
+@app.route("/ai/detection")
+def get_detection():
+    return jsonify(latest_detection)
+
+@app.route("/ai/stream")
+def video_stream():
+    def generate():
+        while True:
+            with frame_lock:
+                frame = latest_frame_bytes
+            if frame is not None:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.033)
+    return Response(generate(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+def run_server():
+    app.run(host="0.0.0.0", port=5001, threaded=True)
